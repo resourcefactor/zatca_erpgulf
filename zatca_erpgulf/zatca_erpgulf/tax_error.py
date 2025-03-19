@@ -2,6 +2,7 @@
 in sales invoices."""
 
 import frappe
+from erpnext import get_region
 
 
 def validate_sales_invoice_taxes(doc, event=None):
@@ -12,6 +13,11 @@ def validate_sales_invoice_taxes(doc, event=None):
     :param sales_invoice_doc: The sales invoice document object
     :return: None
     """
+
+    region = get_region(doc.company)
+    if region not in ["Saudi Arabia"]:
+        return
+
     customer_doc = frappe.get_doc("Customer", doc.customer)
     # if customer_doc.custom_b2c != 1:
     #     frappe.throw("This customer should be B2C for Background")

@@ -71,6 +71,8 @@ from zatca_erpgulf.zatca_erpgulf.pos_schedule_background import (
     zatca_call_pos_without_xml_background,
 )
 
+from erpnext import get_region
+
 ITEM_TAX_TEMPLATE_WARNING = "If any one item has an Item Tax Template,"
 " all items must have an Item Tax Template."
 CONTENT_TYPE_JSON = "application/json"
@@ -975,6 +977,10 @@ def is_qr_and_xml_attached(sales_invoice_doc):
 @frappe.whitelist(allow_guest=False)
 def zatca_background_on_submit(doc, _method=None, bypass_background_check=False):
     """Function for zatca background on submit"""
+
+    region = get_region(doc.company)
+    if region not in ["Saudi Arabia"]:
+        return
 
     try:
         source_doc = doc

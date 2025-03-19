@@ -70,6 +70,7 @@ DS_TRANSFORM = "ds:Transform"
 from zatca_erpgulf.zatca_erpgulf.sign_invoice import get_api_url, attach_qr_image
 
 from zatca_erpgulf.zatca_erpgulf.create_qr import create_qr_code
+from erpnext import get_region
 
 
 # frappe.init(site="zatca.erpgulf.com")
@@ -1844,6 +1845,11 @@ def zatca_call(
 def zatca_background_on_submit(doc, _method=None, bypass_background_check=False):
     """referes according to the ZATC based sytem with the submitbutton of the sales invoice"""
     try:
+        
+        region = get_region(doc.company)
+        if region not in ["Saudi Arabia"]:
+            return
+
         source_doc = doc
         sales_invoice_doc = doc
         invoice_number = sales_invoice_doc.name
