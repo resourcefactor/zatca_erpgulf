@@ -1,7 +1,7 @@
 """
 ZATCA E-Invoicing Integration for ERPNext
 This module facilitates the generation, validation, and submission of
- ZATCA-compliant e-invoices for companies
+ZATCA-compliant e-invoices for companies
 using ERPNext. It supports compliance with the ZATCA requirements for Phase 2,
 including the creation of UBL XML
 invoices, signing, and submission to ZATCA servers for clearance and reporting.
@@ -13,6 +13,8 @@ import base64
 import json
 import frappe
 import requests
+import xmltodict
+import html
 from pyqrcode import create as qr_create
 from frappe.custom.doctype.custom_field.custom_field import create_custom_fields
 from zatca_erpgulf.zatca_erpgulf.createxml import (
@@ -258,6 +260,7 @@ def reporting_api(
                     {"gif_url": "/assets/zatca_erpgulf/js/loading.gif"},
                     user=frappe.session.user,
                 )
+                url = get_api_url(company_abbr, base_url="invoices/reporting/single")
                 response = requests.post(
                     url=get_api_url(company_abbr, base_url="invoices/reporting/single"),
                     headers=headers,
@@ -654,6 +657,7 @@ def zatca_call(
     any_item_has_tax_template=False,
     company_abbr=None,
     source_doc=None,
+    docstatus=1
 ):
     """zatca call which includes the function calling and validation reguarding the api and
     based on this the zATCA output and message is getting"""
@@ -722,6 +726,9 @@ def zatca_call(
         except FileNotFoundError:
             frappe.throw("XML file not found")
         tag_removed_xml = removetags(file_content)
+        if docstatus == 0:
+            canonicalized_xml = canonicalize_xml(tag_removed_xml)
+            return canonicalized_xml
         canonicalized_xml = canonicalize_xml(tag_removed_xml)
         hash1, encoded_hash = getinvoicehash(canonicalized_xml)
         encoded_signature = digital_signature(hash1, company_abbr, source_doc)
@@ -1258,7 +1265,7 @@ def zatca_background_on_submit(doc, _method=None, bypass_background_check=False)
             frappe.throw(
                 "Additional discount cannot be negative. Please enter a positive value."
             )
-        if sales_invoice_doc.docstatus in [0, 2]:
+        if sales_invoice_doc.docstatus in [2]:
             frappe.throw(
                 f"Please submit the invoice before sending to ZATCA: {invoice_number}"
             )
@@ -1320,14 +1327,30 @@ def zatca_background_on_submit(doc, _method=None, bypass_background_check=False)
                         source_doc,
                     )
                 else:
-
-                    zatca_call(
-                        invoice_number,
-                        "0",
-                        any_item_has_tax_template,
-                        company_abbr,
-                        source_doc,
-                    )
+                    if doc.docstatus == 0:
+                        response = zatca_call(
+                            invoice_number,
+                            "0",
+                            any_item_has_tax_template,
+                            company_abbr,
+                            source_doc,
+                            doc.docstatus
+                        )
+                        result_dict = convert_ubl_xml_to_dict(response)
+                        print(json.dumps(result_dict, indent=2))
+                        doc.db_set(
+                            "data_before_send_to_zatca",
+                            json.dumps(result_dict, indent=2),
+                        )
+                        # doc.save()
+                    else:
+                        zatca_call(
+                            invoice_number,
+                            "0",
+                            any_item_has_tax_template,
+                            company_abbr,
+                            source_doc,
+                        )
 
         else:
             create_qr_code(sales_invoice_doc, method=None)
@@ -1372,3 +1395,15 @@ def resubmit_invoices(invoice_numbers, bypass_background_check=False):
             # Log errors and add to the results
 
     return results
+
+
+def convert_ubl_xml_to_dict(xml_string):
+    # Step 1: Unescape HTML entities
+    unescaped = html.unescape(xml_string)
+
+    # Step 2: Convert XML to Python dict
+    try:
+        xml_dict = xmltodict.parse(unescaped)
+        return xml_dict
+    except Exception as e:
+        return {"error": str(e)}
