@@ -1141,6 +1141,8 @@ def zatca_background(invoice_number, source_doc, bypass_background_check=False):
 
 @frappe.whitelist(allow_guest=False)
 def zatca_background_on_submit(doc, _method=None, bypass_background_check=False):
+    if doc.is_new():
+        return
     """referes according to the ZATC based sytem with the submitbutton of the sales invoice"""
 
     region = get_region(doc.company)
