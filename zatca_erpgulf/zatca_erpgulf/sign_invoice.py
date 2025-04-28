@@ -7,14 +7,16 @@ including the creation of UBL XML
 invoices, signing, and submission to ZATCA servers for clearance and reporting.
 """
 
+import frappe
 import os
 import io
 import base64
 import json
-import frappe
 import requests
 import xmltodict
+import re
 import html
+from bs4 import BeautifulSoup
 from pyqrcode import create as qr_create
 from frappe.custom.doctype.custom_field.custom_field import create_custom_fields
 from zatca_erpgulf.zatca_erpgulf.createxml import (
@@ -1399,13 +1401,52 @@ def resubmit_invoices(invoice_numbers, bypass_background_check=False):
     return results
 
 
-def convert_ubl_xml_to_dict(xml_string):
-    # Step 1: Unescape HTML entities
+def advanced_sanitize_xml_string(xml):
+    # Step 1: Remove illegal control characters
+    xml = re.sub(r"[\x00-\x08\x0B\x0C\x0E-\x1F]", "", xml)
+
+    # Step 2: Fix invalid "<" inside text
+    xml = re.sub(r"<(?=[^a-zA-Z!/])", "&lt;", xml)
+
+    # Step 3: Fix standalone "&"
+    xml = re.sub(r"&(?!amp;|lt;|gt;|quot;|apos;|#\d+;|#x[\da-fA-F]+;)", "&amp;", xml)
+
+    # Step 4: Fix unquoted attributes
+    xml = re.sub(
+        r'(<[a-zA-Z0-9:_-]+)\s+([a-zA-Z0-9:_-]+)=([^"\'\s>]+)', r'\1 \2="\3"', xml
+    )
+
+    # Step 5: Strip junk spaces
+    xml = xml.strip()
+
+    return xml
+
+
+def convert_ubl_xml_to_dict(xml_string, debug=False):
+    # Step 0: Unescape any HTML entities
     unescaped = html.unescape(xml_string)
 
-    # Step 2: Convert XML to Python dict
+    # Step 1: Sanitize XML string
+    sanitized = advanced_sanitize_xml_string(unescaped)
+
+    if debug:
+        with open("sanitized_output.xml", "w", encoding="utf-8") as f:
+            f.write(sanitized)
+
+    # Step 2: Try normal xmltodict parse
     try:
-        xml_dict = xmltodict.parse(unescaped)
+        xml_dict = xmltodict.parse(sanitized)
         return xml_dict
     except Exception as e:
-        return {"error": str(e)}
+        print(f"xmltodict failed, attempting BeautifulSoup fallback: {e}")
+
+    # Step 3: Fallback - Try repairing with BeautifulSoup
+    try:
+        soup = BeautifulSoup(sanitized, "xml")
+        repaired_xml = str(soup)
+
+        # Now try parsing the repaired XML
+        repaired_dict = xmltodict.parse(repaired_xml)
+        return repaired_dict
+    except Exception as e2:
+        return {"error": f"Failed even after fallback: {e2}"}
