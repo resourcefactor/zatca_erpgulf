@@ -13,7 +13,6 @@ import io
 import base64
 import json
 from frappe import _
-import frappe
 from erpnext import get_region
 import requests
 from zatca_erpgulf.zatca_erpgulf.event_log import log_zatca_event
