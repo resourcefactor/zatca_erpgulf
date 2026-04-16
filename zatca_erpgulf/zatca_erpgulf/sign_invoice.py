@@ -12,11 +12,13 @@ import os
 import io
 import base64
 import json
+from frappe import _
 import requests
 import xmltodict
 import re
 import html
 from bs4 import BeautifulSoup
+from zatca_erpgulf.zatca_erpgulf.event_log import log_zatca_event
 from pyqrcode import create as qr_create
 from frappe.custom.doctype.custom_field.custom_field import create_custom_fields
 from zatca_erpgulf.zatca_erpgulf.createxml import (
