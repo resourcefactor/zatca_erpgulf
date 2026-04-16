@@ -1,12 +1,13 @@
 """
 ZATCA E-Invoicing Integration for ERPNext
 This module facilitates the generation, validation, and submission of
- ZATCA-compliant e-invoices for companies
+ZATCA-compliant e-invoices for companies
 using ERPNext. It supports compliance with the ZATCA requirements for Phase 2,
 including the creation of UBL XML
 invoices, signing, and submission to ZATCA servers for clearance and reporting.
 """
 
+import frappe
 import os
 import io
 import base64
@@ -269,6 +270,7 @@ def reporting_api(
                     {"gif_url": "/assets/zatca_erpgulf/js/loading.gif"},
                     user=frappe.session.user,
                 )
+                url = get_api_url(company_abbr, base_url="invoices/reporting/single")
                 response = requests.post(
                     url=get_api_url(company_abbr, base_url="invoices/reporting/single"),
                     headers=headers,
@@ -881,6 +883,7 @@ def zatca_call(
     any_item_has_tax_template=False,
     company_abbr=None,
     source_doc=None,
+    docstatus=1
 ):
     """zatca call which includes the function calling and validation reguarding the api and
     based on this the zATCA output and message is getting"""
@@ -963,6 +966,9 @@ def zatca_call(
         # except FileNotFoundError:
         #     frappe.throw("XML file not found")
         tag_removed_xml = removetags(file_content)
+        if docstatus == 0:
+            canonicalized_xml = canonicalize_xml(tag_removed_xml)
+            return canonicalized_xml
         canonicalized_xml = canonicalize_xml(tag_removed_xml)
         hash1, encoded_hash = getinvoicehash(canonicalized_xml)
         encoded_signature = digital_signature(hash1, company_abbr, source_doc)
@@ -1581,7 +1587,14 @@ def zatca_background(invoice_number: str, source_doc:str|dict=None, bypass_backg
 
 @frappe.whitelist(allow_guest=False)
 def zatca_background_on_submit(doc: "str|dict", _method: str = None, bypass_background_check: bool = False):
+    if _method == "on_update" and (doc.is_new() or doc.docstatus == 1):
+        return
     """referes according to the ZATC based sytem with the submitbutton of the sales invoice"""
+
+    region = get_region(doc.company)
+    if region not in ["Saudi Arabia"]:
+        return
+
     try:
         source_doc = doc
         sales_invoice_doc = doc
@@ -1928,7 +1941,7 @@ def zatca_background_on_submit(doc: "str|dict", _method: str = None, bypass_back
                     "Additional discount cannot be negative. Please enter a positive value."
                 )
             )
-        if sales_invoice_doc.docstatus in [0, 2]:
+        if sales_invoice_doc.docstatus in [2]:
             frappe.throw(
                 _(
                     f"Please submit the invoice before sending to ZATCA: {invoice_number}"
@@ -2000,14 +2013,30 @@ def zatca_background_on_submit(doc: "str|dict", _method: str = None, bypass_back
                         source_doc,
                     )
                 else:
-
-                    zatca_call(
-                        invoice_number,
-                        "0",
-                        any_item_has_tax_template,
-                        company_abbr,
-                        source_doc,
-                    )
+                    if doc.docstatus == 0:
+                        response = zatca_call(
+                            invoice_number,
+                            "0",
+                            any_item_has_tax_template,
+                            company_abbr,
+                            source_doc,
+                            doc.docstatus
+                        )
+                        result_dict = convert_ubl_xml_to_dict(response)
+                        print(json.dumps(result_dict, indent=2))
+                        doc.db_set(
+                            "data_before_send_to_zatca",
+                            json.dumps(result_dict, indent=2),
+                        )
+                        # doc.save()
+                    else:
+                        zatca_call(
+                            invoice_number,
+                            "0",
+                            any_item_has_tax_template,
+                            company_abbr,
+                            source_doc,
+                        )
 
         else:
             create_qr_code(sales_invoice_doc, method=None)
@@ -2060,3 +2089,54 @@ def resubmit_invoices(invoice_numbers:str, bypass_background_check:bool=False):
             # Log errors and add to the results
 
     return results
+
+
+def advanced_sanitize_xml_string(xml):
+    # Step 1: Remove illegal control characters
+    xml = re.sub(r"[\x00-\x08\x0B\x0C\x0E-\x1F]", "", xml)
+
+    # Step 2: Fix invalid "<" inside text
+    xml = re.sub(r"<(?=[^a-zA-Z!/])", "&lt;", xml)
+
+    # Step 3: Fix standalone "&"
+    xml = re.sub(r"&(?!amp;|lt;|gt;|quot;|apos;|#\d+;|#x[\da-fA-F]+;)", "&amp;", xml)
+
+    # Step 4: Fix unquoted attributes
+    xml = re.sub(
+        r'(<[a-zA-Z0-9:_-]+)\s+([a-zA-Z0-9:_-]+)=([^"\'\s>]+)', r'\1 \2="\3"', xml
+    )
+
+    # Step 5: Strip junk spaces
+    xml = xml.strip()
+
+    return xml
+
+
+def convert_ubl_xml_to_dict(xml_string, debug=False):
+    # Step 0: Unescape any HTML entities
+    unescaped = html.unescape(xml_string)
+
+    # Step 1: Sanitize XML string
+    sanitized = advanced_sanitize_xml_string(unescaped)
+
+    if debug:
+        with open("sanitized_output.xml", "w", encoding="utf-8") as f:
+            f.write(sanitized)
+
+    # Step 2: Try normal xmltodict parse
+    try:
+        xml_dict = xmltodict.parse(sanitized)
+        return xml_dict
+    except Exception as e:
+        print(f"xmltodict failed, attempting BeautifulSoup fallback: {e}")
+
+    # Step 3: Fallback - Try repairing with BeautifulSoup
+    try:
+        soup = BeautifulSoup(sanitized, "xml")
+        repaired_xml = str(soup)
+
+        # Now try parsing the repaired XML
+        repaired_dict = xmltodict.parse(repaired_xml)
+        return repaired_dict
+    except Exception as e2:
+        return {"error": f"Failed even after fallback: {e2}"}
