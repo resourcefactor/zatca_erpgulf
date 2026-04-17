@@ -69,3 +69,7 @@ def test_save_validate(doc, method=None):  # pylint: disable=unused-argument
         return
 
     frappe.msgprint(_("Test save validated and stopped it here"))
+
+    region = get_region(doc.company)
+    if region not in ["Saudi Arabia"]:
+        return

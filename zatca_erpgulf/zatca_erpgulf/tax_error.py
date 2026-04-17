@@ -32,6 +32,7 @@ def validate_sales_invoice_taxes(doc, event=None):
             frappe.throw(_(
                 "ZATCA POS Machine name is missing for invoice, Add ZATCA POS machine name"
             ))
+
     customer_doc = frappe.get_doc("Customer", doc.customer)
     # if customer_doc.custom_b2c != 1:
     #     frappe.throw("This customer should be B2C for Background")
