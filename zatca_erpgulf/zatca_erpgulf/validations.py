@@ -63,6 +63,11 @@ def test_save_validate(doc, method=None):  # pylint: disable=unused-argument
     """
     Used for testing purposes to display a message during save validation.
     """
+
+    region = get_region(doc.company)
+    if region not in ["Saudi Arabia"]:
+        return
+
     frappe.msgprint(_("Test save validated and stopped it here"))
 
     region = get_region(doc.company)

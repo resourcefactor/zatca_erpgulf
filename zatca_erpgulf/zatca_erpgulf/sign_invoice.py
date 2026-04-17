@@ -12,6 +12,11 @@ import os
 import io
 import base64
 import json
+import requests
+import xmltodict
+import re
+import html
+from bs4 import BeautifulSoup
 from frappe import _
 from erpnext import get_region
 import requests
@@ -79,6 +84,9 @@ from zatca_erpgulf.zatca_erpgulf.submit_xml_qr_notmultiple import (
 from zatca_erpgulf.zatca_erpgulf.zatca_background_sched import (
     zatca_call_scheduler_background,
 )
+
+from erpnext import get_region
+
 from zatca_erpgulf.zatca_erpgulf.pdf_a3 import (
     call_embed_pdf_on_submit
 )
@@ -1590,9 +1598,9 @@ def zatca_background(invoice_number: str, source_doc:str|dict=None, bypass_backg
 
 @frappe.whitelist(allow_guest=False)
 def zatca_background_on_submit(doc: "str|dict", _method: str = None, bypass_background_check: bool = False):
+    """referes according to the ZATC based sytem with the submitbutton of the sales invoice"""
     if _method == "on_update" and (doc.is_new() or doc.docstatus == 1):
         return
-    """referes according to the ZATC based sytem with the submitbutton of the sales invoice"""
 
     region = get_region(doc.company)
     if region not in ["Saudi Arabia"]:
